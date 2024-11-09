@@ -4,5 +4,9 @@
 		"grammy": "^1.31.0",
 		"puppeteer-core": "^23.7.1"
 	},
-	"type": "module"
+	"type": "module",
+	"scripts": {
+		"predev": "export DEBUG='grammy*'",
+		"dev": "node --watch --env-file=.env bot.js "
+	}
 }
