@@ -1,5 +1,6 @@
 {
 	"dependencies": {
+		"@sqlitecloud/drivers": "^1.0.289",
 		"grammy": "^1.31.0",
 		"puppeteer-core": "^23.7.1"
 	},
