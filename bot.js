@@ -7,6 +7,7 @@ const app = express();
 const bot = new Bot(process.env.BOT_API_TOKEN);
 const db = new Database(process.env.SQLITE_CLOUD_URL);
 
+const PORT = process.env.PORT || 3000;
 // Serve static files from the "public" directory
 app.use(express.static('public'));
 // accept json data sent to server
@@ -29,20 +30,22 @@ bot.hears(/https:\/\/www\.daraz\.com\.np\/products\/[^\s]+/, async (ctx) => {
 const DEMO_CRON_INTERVAL_MS = 30 * 1000;
 // no. of times to run cron job
 const DEMO_CRON_RUN_LIMIT = 5;
-bot.command("demo", ctx => {
+const DEMO_URL = `http://localhost:${PORT}/demo.html`
+
+bot.command("demo", async ctx => {
   // reply with link to served demo html file 
   // call scraper loop with this user's id
   ctx.reply(`Started demo.
-    The bot will check http://localhost:${PORT}/demo.html for price drops every ${DEMO_CRON_INTERVAL_MS / 1000} seconds for ${DEMO_CRON_RUN_LIMIT} times.
+    The bot will check ${DEMO_URL} for price drops every ${DEMO_CRON_INTERVAL_MS / 1000} seconds for ${DEMO_CRON_RUN_LIMIT} times.
     `);
+  await scrapeDaraz(DEMO_URL);
 
-    
+
 })
 
 bot.start();
 console.log("Bot server is running. \n");
 
-const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Express web server is running on http://localhost:${PORT}`);
 });
@@ -126,17 +129,14 @@ async function scrapeDaraz(url) {
   };
 
   const browser = await puppeteer.launch({
-    executablePath: "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+    executablePath: "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+    headless: true
   });
   const page = await browser.newPage();
 
-  // const url="https://www.daraz.com.np/products/m160-led-mouse-with-rgb-led-light-i128305627-s1035567228.html";
   await page.goto(url, { timeout: 2 * 60 * 1000 });
 
   await page.setViewport({ width: 1080, height: 1024 });
-
-  // TODO: make dummy site have form for changing product data. 
-  //   this will then be saved to pdpTrackingData globally-scoped obj 
 
   // INFO: each product page in daraz has a globally-scoped obj pdpTrackingData 
   // that has data about the product
@@ -154,10 +154,16 @@ async function scrapeDaraz(url) {
 
   // maybe notify user about discount %
   if (productData.finalPrice < productData._undiscountedPrice) {
-    console.log("discount");
 
     // todo: prob add condiion to check if element w/ this discount class exists or not
-    productData.discountPercent = Number(await page.$eval('.pdp-product-price__discount', el => el.textContent.replace(/-|%/g, '')));
+    const discountText = await page.$eval('.pdp-product-price__discount', 
+      el => el.textContent
+    ).catch(() => null); 
+    if (discountText !== null) {
+      productData.discountPercent = Number(discountText.replace(/-|%/g, ''));
+    } else {
+      productData._discountPercent = null;
+    }
   }
 
 
