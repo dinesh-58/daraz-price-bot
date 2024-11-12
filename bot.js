@@ -33,16 +33,77 @@ const DEMO_CRON_RUN_LIMIT = 5;
 const DEMO_URL = `http://localhost:${PORT}/demo.html`
 
 bot.command("demo", async ctx => {
-  // reply with link to served demo html file 
-  // call scraper loop with this user's id
+  // todo: call scraper loop with this user's id
   ctx.reply(`Started demo.
     The bot will check ${DEMO_URL} for price drops every ${DEMO_CRON_INTERVAL_MS / 1000} seconds for ${DEMO_CRON_RUN_LIMIT} times.
     `);
-  await scrapeDaraz(DEMO_URL);
-
-
+  try {
+    // add to demo watchlist
+    await addUserToWishlist(ctx.chat, DEMO_URL, true);
+    // todo: need productData here to specify which product's watchlist to add to
+    scrapeCronJob(DEMO_URL);
+  } catch (err) {
+    console.error(err);
+  }
 })
 
+async function addUserToWishlist(chatDetails, url, isDemo = false) {
+  try {
+
+    const { id, fName, username } = chatDetails;
+    // first, add user record if not exists,
+    // else update (because recorded user may have changed name)
+    await db.sql(`INSERT INTO users (id, first_name, username) 
+  values(${id}, ${fName}, ${username})
+   ON CONFLICT(id) DO UPDATE SET
+    first_name = ${fName},
+    username = ${username}`);
+
+    // todo: insert into wishlist table. if demo, concat do update
+    // need idSku for this
+
+    const { idSku } = scrapeDaraz(url);
+    db.get('select pdt_sku, pdt_simplesku', (err, row) => {
+      const demoIdSku = `i${row.pdt_sku}-s${row.pdt_simplesku}`;
+      // for demo, oly current user should be in wishlist
+      stmt = isDemo ? `INSERT INTO wishlist(idSku, user_id) values(${idSku}, ${id})`
+        : `update wishlist set user_id=${id} 
+  where idSku=${demoIdSku}`;
+      db.exec(stmt);
+    })
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+function scrapeCronJob(url, cronIntervalMs, cronRunLimit) {
+  // run every cronIntervalMs uptil cronRunLimit (set limit to -1 for infinite)
+  scrapeDaraz(url);
+  comparePrevPrice(productData);
+}
+
+function comparePrevPrice(productData) {
+  db.get(`SELECT * FROM products where idSku='${productData.idSku}' LIMIT 1`, (err, row) => {
+    if (err) {
+      res.status(404).json({ error: 'No data found' });
+      return console.error(err);
+    }
+    const final = getNumericPrice(productData.finalPrice);
+    const prev = getNumericPrice(row.prevPrice);
+    if (final < prev) {
+      // notify users
+      // in db, update prevPrice 
+      // & incrementscrapePriority
+    } else if (final > prev) {
+      // only update prevPrice
+    }
+  });
+}
+
+bot.command('test', ctx => {
+  console.log("chat: ", ctx.chat);
+
+})
 bot.start();
 console.log("Bot server is running. \n");
 
@@ -53,7 +114,10 @@ app.listen(PORT, () => {
 app.get('/api/getDemoData', async (req, res) => {
   try {
     db.get('SELECT * FROM demo_product LIMIT 1', (err, row) => {
-      if (err) return res.status(404).json({ error: 'No data found' });
+      if (err) {
+        res.status(404).json({ error: 'No data found' });
+        return console.error(err);
+      }
       res.json(row);
     });
 
@@ -113,13 +177,13 @@ function scrapeLoop() {
 }
 
 export function getNumericPrice(str) {
+  // todo: just remove any alphabets and symbols
   return Number(str.replace(/Rs\.?\s?|,|\s/g, ""));
 }
 
 async function scrapeDaraz(url) {
   const productData = {
-    id: '',
-    sku: '',
+    idSku: '',
     name: '',
     url: '',
     finalPrice: 0,
@@ -134,7 +198,10 @@ async function scrapeDaraz(url) {
   });
   const page = await browser.newPage();
 
-  await page.goto(url, { timeout: 2 * 60 * 1000 });
+  await page.goto(url, {
+    timeout: 2 * 60 * 1000,
+    waitUntil: "networkidle0"
+  });
 
   await page.setViewport({ width: 1080, height: 1024 });
 
@@ -146,19 +213,16 @@ async function scrapeDaraz(url) {
 
 
   productData.url = url;
-  productData.id = loggedData.pdt_sku;
-  productData.sku = loggedData.pdt_simplesku;
+  productData.idSku = `i${loggedData.pdt_sku}-s${loggedData.pdt_simplesku}`;
   productData.name = loggedData.pdt_name;
   productData._undiscountedPrice = getNumericPrice(loggedData.pdt_price);
   productData.finalPrice = getNumericPrice(await page.$eval('.pdp-price_type_normal', el => el.textContent));
 
   // maybe notify user about discount %
   if (productData.finalPrice < productData._undiscountedPrice) {
-
-    // todo: prob add condiion to check if element w/ this discount class exists or not
-    const discountText = await page.$eval('.pdp-product-price__discount', 
+    const discountText = await page.$eval('.pdp-product-price__discount',
       el => el.textContent
-    ).catch(() => null); 
+    ).catch(() => null);
     if (discountText !== null) {
       productData.discountPercent = Number(discountText.replace(/-|%/g, ''));
     } else {
