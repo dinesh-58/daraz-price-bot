@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daraz dummy site</title>
+
+    <!-- placing here to ensure script loaded 1st before page -->
+    <style>
+        article {
+            display: flex;
+        }
+
+        #product-image {
+            width: 200px;
+        }
+
+        .pdp-price_type_normal {
+            font-size: 2rem;
+        }
+
+        .pdp-price_type_deleted {
+            text-decoration: line-through;
+            opacity: 50%;
+
+        }
+    </style>
+    <script>let pdpTrackingData;</script>
+    <script type="module">
+
+        const response = await fetch('/api/getDemoData');
+        if (!response.ok) {
+            throw new Error('Failed to fetch demo data');
+        }
+        pdpTrackingData = await response.json();  // Parse the JSON response
+        console.log(pdpTrackingData);
+        insertPdpData();
+        // if pdp data has discount enabled, set checkbox. don't use state library for now
+        checkDiscountApplicable();
+
+
+    </script>
+</head>
+
+<body>
+    <article>
+
+        <img id="product-image" src="" alt="">
+        <section>
+            <h2 id="product-title"></h2>
+            <span class="pdp-price_type_normal"></span>
+            <span class="pdp-price_type_deleted"></span>
+        </section>
+    </article>
+
+    <form id="product-editor" action="">
+        <legend>Edit product price</legend>
+        <label>
+            Base Price:
+            <input type="number" name="product-price_base">
+        </label>
+        <br>
+        <label>
+            Discounted?
+            <input type="checkbox" name="product-discount">
+        </label>
+        <br>
+        <label>
+            Discounted price
+            <input type="number" name="product-price_discounted">
+        </label>
+        <br>
+        <button type="submit">Submit</button>
+
+    </form>
+
+    <script>
+
+        // import this from another file later
+        function getNumericPrice(str) {
+            return Number(str.replace(/Rs\.?\s?|,|\s/g, ""));
+        }
+        function getStringPrice(num) {
+            return Number(num).toLocaleString("en-IN", {
+                maximumFractionDigits: 0,
+                style: 'currency',
+                currency: 'NPR',
+                currencyDisplay: 'narrowSymbol'
+            })
+        }
+
+        function insertPdpData() {
+            document.querySelector('#product-title').innerText = pdpTrackingData.pdt_name;
+            document.querySelector('#product-image').src = pdpTrackingData.pdt_photo;
+            document.querySelector('.pdp-price_type_normal').innerText = pdpTrackingData.misc_isDiscounted
+                ? pdpTrackingData.misc_discountedPrice : pdpTrackingData.pdt_price;
+            document.querySelector('.pdp-price_type_deleted').innerText = pdpTrackingData.misc_isDiscounted
+                ? pdpTrackingData.pdt_price : '';
+        }
+
+        const checkboxDiscount = document.querySelector('input[name="product-discount"]');
+        const inputBasePrice = document.querySelector('input[name="product-price_base"]');
+        const inputDiscountedPrice = document.querySelector('input[name="product-price_discounted"]');
+
+        // todo: set default value of form inputs based on pdpTrackingData. use state library for this
+        // currently error due to fetch not being resolved by the time this is executed 
+        
+        // checkboxDiscount.checked = Boolean(pdpTrackingData.misc_isDiscounted);
+        // inputBasePrice.value = getNumericPrice(pdpTrackingData.pdt_price);
+        // inputDiscountedPrice.value = getNumericPrice(pdpTrackingData.misc_discountedPrice);
+        document.querySelector('#product-editor').onsubmit = e => {
+            e.preventDefault();
+            pdpTrackingData.pdt_price = getStringPrice(inputBasePrice.value);
+            pdpTrackingData.misc_discountedPrice = getStringPrice(inputDiscountedPrice.value);
+            pdpTrackingData.misc_isDiscounted = checkboxDiscount.checked ? 1 : 0;
+            insertPdpData();
+            // update data in db
+            fetch('/api/postDemoData', {
+                method: "POST",
+                body: JSON.stringify({pdpTrackingData}),
+                headers:{'content-type': 'application/json'},
+            }).then(res => {
+                // todo: handle response / error
+            })
+        };
+
+
+        function checkDiscountApplicable() {
+            inputDiscountedPrice.disabled = !checkboxDiscount.checked; 
+        }
+        checkboxDiscount.onchange = checkDiscountApplicable;
+    </script>
+</body>
+
+</html>

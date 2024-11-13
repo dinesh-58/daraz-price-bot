@@ -1,12 +1,12 @@
 {
 	"dependencies": {
 		"@sqlitecloud/drivers": "^1.0.289",
+		"express": "^4.21.1",
 		"grammy": "^1.31.0",
 		"puppeteer-core": "^23.7.1"
 	},
 	"type": "module",
 	"scripts": {
-		"predev": "export DEBUG='grammy*'",
 		"dev": "node --watch --env-file=.env bot.js "
 	}
 }
