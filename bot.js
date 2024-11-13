@@ -76,10 +76,10 @@ async function addUserToWishlist(chatDetails, url, isDemo = false) {
   }
 }
 
-function scrapeCronJob(url, cronIntervalMs, cronRunLimit) {
+// TODO: hmm don't pass url here since its supposed to loop for all products during 1 cron job? 
+async function scrapeCronJob(url, cronIntervalMs, cronRunLimit) {
   // run every cronIntervalMs uptil cronRunLimit (set limit to -1 for infinite)
-  scrapeDaraz(url);
-  comparePrevPrice(productData);
+  comparePrevPrice(await scrapeDaraz(url));
 }
 
 function comparePrevPrice(productData) {
@@ -100,10 +100,6 @@ function comparePrevPrice(productData) {
   });
 }
 
-bot.command('test', ctx => {
-  console.log("chat: ", ctx.chat);
-
-})
 bot.start();
 console.log("Bot server is running. \n");
 
@@ -193,8 +189,9 @@ async function scrapeDaraz(url) {
   };
 
   const browser = await puppeteer.launch({
-    executablePath: "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
-    headless: true
+    browser: process.env.PUPPETEER_BROWSER,
+    ...(process.env.PUPPETEER_BROWSER_PATH && { executablePath: process.env.PUPPETEER_BROWSER_PATH }),
+    headless: true,
   });
   const page = await browser.newPage();
 
