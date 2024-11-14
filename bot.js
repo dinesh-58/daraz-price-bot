@@ -21,6 +21,9 @@ bot.command("start", async (ctx) => {
   try {
     await db.sql(`INSERT INTO users (id, first_name, username) 
     values('${id}', '${first_name}', '${username}')
+    ON CONFLICT(id) DO UPDATE SET
+      first_name = ${fName},
+      username = ${username}
       `);
   } catch (err) {
     console.error(err);
