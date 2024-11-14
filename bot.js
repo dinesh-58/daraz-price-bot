@@ -34,14 +34,30 @@ bot.hears(/https:\/\/www\.daraz\.com\.np\/products\/[^\s]+/, async (ctx) => {
   const url = ctx.match[0];
   console.log(`\nReceived: ${url}`);
 
+  const productData = await scrapeDaraz(url);
+  insertProduct(productData);
+  // todo: add to wishlist as well
 
-  const pData = await scrapeDaraz(url);
-  console.log({ pData });
-  // todo: get data from db for current product then compare
+  // todo: move this logic belowto some other function. not needed here
+  //  get data from db for current product then compare
   // if pData.finalPrice < prevPrice, notify user, then store new price
   // if finalPrice > prevPrice, don't notify but store
-  ctx.reply(`Noted. You will be notified about future price drops for ${pData.name}.`);
+  ctx.reply(`Noted. You will be notified about future price drops for ${productData.name}.`);
 })
+
+async function insertProduct(productData) {
+  const { idSku, name, url, finalPrice } = productData;
+  try {
+    await db.sql(`
+ insert into products(idSku, name, url, prevPrice)
+  values('${idSku}', '${name}', '${url}', ${finalPrice})
+    ON CONFLICT(idSku) DO UPDATE SET
+      scrapePriority = scrapePriority + 1
+ `);
+  } catch (err) {
+    console.error(err);
+  }
+}
 
 const DEMO_CRON_INTERVAL_MS = 30 * 1000;
 // no. of times to run cron job
