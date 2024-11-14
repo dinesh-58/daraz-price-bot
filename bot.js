@@ -79,6 +79,7 @@ async function addUserToWishlist(chatDetails, url, isDemo = false) {
 // TODO: hmm don't pass url here since its supposed to loop for all products during 1 cron job? 
 async function scrapeCronJob(url, cronIntervalMs, cronRunLimit) {
   // run every cronIntervalMs uptil cronRunLimit (set limit to -1 for infinite)
+    // setTimeout(scrapeDaraz(), CRON_INTERVAL_MS);
   comparePrevPrice(await scrapeDaraz(url));
 }
 
@@ -145,32 +146,7 @@ app.post('/api/postDemoData', async (req, res) => {
   }
 });
 
-function clearObjectValues(obj) {
-  for (const [key, value] of Object.entries(obj)) {
-    if (typeof value === "string") {
-      obj[key] = "";
-    } else if (typeof value === "number") {
-      obj[key] = 0;
-    } else if (typeof value === "boolean") {
-      obj[key] = false;
-    } else if (Array.isArray(value)) {
-      obj[key] = [];
-    } else if (typeof value === "object" && value !== null) {
-      obj[key] = {};
-    } else {
-      obj[key] = null; // Set to null for unhandled types
-    }
-  }
-  return obj;
-}
-
-
 const CRON_INTERVAL_MS = 4 * 60 * 60 * 1000;
-
-function firstScrape() { }
-function scrapeLoop() {
-  // setTimeout(scrapeDaraz(), CRON_INTERVAL_MS);
-}
 
 export function getNumericPrice(str) {
   // todo: just remove any alphabets and symbols
