@@ -33,16 +33,16 @@ bot.command("start", async (ctx) => {
 bot.hears(/https:\/\/www\.daraz\.com\.np\/products\/[^\s]+/, async (ctx) => {
   const url = ctx.match[0];
   console.log(`\nReceived: ${url}`);
-
+  
   const productData = await scrapeDaraz(url);
-  insertProduct(productData);
-  // todo: add to wishlist as well
+  ctx.reply(`Noted. You will be notified about future price drops for ${productData.name}.`);
+  await insertProduct(productData);
+  await insertWishlist(productData.idSku, ctx.chat.id);
 
   // todo: move this logic belowto some other function. not needed here
   //  get data from db for current product then compare
   // if pData.finalPrice < prevPrice, notify user, then store new price
   // if finalPrice > prevPrice, don't notify but store
-  ctx.reply(`Noted. You will be notified about future price drops for ${productData.name}.`);
 })
 
 async function insertProduct(productData) {
@@ -54,6 +54,18 @@ async function insertProduct(productData) {
     ON CONFLICT(idSku) DO UPDATE SET
       scrapePriority = scrapePriority + 1
  `);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function insertWishlist(idSku, user_id) {
+  try {
+    // todo: handle duplicate entries by same user?
+    await db.sql(`
+      insert into wishlist(idSku, user_id)
+      values('${idSku}', '${user_id}')
+      `);
   } catch (err) {
     console.error(err);
   }
