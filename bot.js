@@ -13,7 +13,20 @@ app.use(express.static('public'));
 // accept json data sent to server
 app.use(express.json());
 
-bot.command("start", (ctx) => ctx.reply("Welcome! Send any daraz product link to track when its price decreases. If the bot is offline, it will respond to your messages when it is back online"));
+bot.command("start", async (ctx) => {
+  ctx.reply("Welcome! Send any daraz product link to track when its price decreases. If the bot is offline, it will respond to your messages when it is back online")
+
+  const { id, first_name, username } = ctx.chat;
+
+  try {
+    await db.sql(`INSERT INTO users (id, first_name, username) 
+    values('${id}', '${first_name}', '${username}')
+      `);
+  } catch (err) {
+    console.error(err);
+  }
+});
+
 bot.hears(/https:\/\/www\.daraz\.com\.np\/products\/[^\s]+/, async (ctx) => {
   const url = ctx.match[0];
   console.log(`\nReceived: ${url}`);
@@ -50,14 +63,7 @@ bot.command("demo", async ctx => {
 async function addUserToWishlist(chatDetails, url, isDemo = false) {
   try {
 
-    const { id, fName, username } = chatDetails;
-    // first, add user record if not exists,
-    // else update (because recorded user may have changed name)
-    await db.sql(`INSERT INTO users (id, first_name, username) 
-  values(${id}, ${fName}, ${username})
-   ON CONFLICT(id) DO UPDATE SET
-    first_name = ${fName},
-    username = ${username}`);
+    const { id, first_name, username } = chatDetails;
 
     // todo: insert into wishlist table. if demo, concat do update
     // need idSku for this
@@ -79,6 +85,7 @@ async function addUserToWishlist(chatDetails, url, isDemo = false) {
 // TODO: hmm don't pass url here since its supposed to loop for all products during 1 cron job? 
 async function scrapeCronJob(url, cronIntervalMs, cronRunLimit) {
   // run every cronIntervalMs uptil cronRunLimit (set limit to -1 for infinite)
+  // setTimeout(scrapeDaraz(), CRON_INTERVAL_MS);
   comparePrevPrice(await scrapeDaraz(url));
 }
 
@@ -145,32 +152,7 @@ app.post('/api/postDemoData', async (req, res) => {
   }
 });
 
-function clearObjectValues(obj) {
-  for (const [key, value] of Object.entries(obj)) {
-    if (typeof value === "string") {
-      obj[key] = "";
-    } else if (typeof value === "number") {
-      obj[key] = 0;
-    } else if (typeof value === "boolean") {
-      obj[key] = false;
-    } else if (Array.isArray(value)) {
-      obj[key] = [];
-    } else if (typeof value === "object" && value !== null) {
-      obj[key] = {};
-    } else {
-      obj[key] = null; // Set to null for unhandled types
-    }
-  }
-  return obj;
-}
-
-
 const CRON_INTERVAL_MS = 4 * 60 * 60 * 1000;
-
-function firstScrape() { }
-function scrapeLoop() {
-  // setTimeout(scrapeDaraz(), CRON_INTERVAL_MS);
-}
 
 export function getNumericPrice(str) {
   // todo: just remove any alphabets and symbols
