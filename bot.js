@@ -237,7 +237,7 @@ async function scrapeDaraz(url) {
       el => el.textContent
     ).catch(() => null);
     if (discountText !== null) {
-      productData.discountPercent = Number(discountText.replace(/-|%/g, ''));
+      productData._discountPercent = Number(discountText.replace(/-|%/g, ''));
     } else {
       productData._discountPercent = null;
     }
