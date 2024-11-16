@@ -82,7 +82,7 @@ bot.command("demo", async ctx => {
   try {
     // set user as current watcher for demo. this is because we don't want to notify many users when demo is running
     db.get('select pdt_sku, pdt_simplesku from demo_product', (err, row) => {
-      if (err) {
+      if(err) {
         return console.error(err);
       }
       const demoIdSku = getIdSku(row.pdt_sku, row.pdt_simplesku);
