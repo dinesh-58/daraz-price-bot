@@ -25,8 +25,8 @@ async function insertUser(id, first_name, username) {
     await db.sql(`INSERT INTO users (id, first_name, username) 
     values('${id}', '${first_name}', '${username}')
     ON CONFLICT(id) DO UPDATE SET
-      first_name = ${first_name},
-      username = ${username}
+      first_name = '${first_name}',
+      username = '${username}'
       `);
   } catch (err) {
     console.error(err);
