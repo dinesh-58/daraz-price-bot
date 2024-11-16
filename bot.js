@@ -13,13 +13,23 @@ app.use(express.static("public"));
 // accept json data sent to server
 app.use(express.json());
 
+await bot.api.setMyCommands([
+  { command: "start", description: "Start the bot" },
+  { command: "help", description: "Show help text" },
+  { command: "list", description: "View products tracked by you" },
+  { command: "demo", description: "Run demo" },
+  // { command: "force", description: "Force check prices" },
+  { command: "forcedemo", description: "Force check prices for demo" },
+  { command: "remove", description: "Remove specified product from tracking" },
+]);
+
 bot.command("list", async (ctx) => {
   try {
     const sql = `
       SELECT w.idSku, p.name 
       FROM wishlist w
       JOIN products p ON w.idSku = p.idSku
-      WHERE w.user_id = 1792870236`;
+      WHERE w.user_id = ${ctx.chat.id}`;
     db.all(sql, (err, rows) => {
       if (err) {
         console.error(err);
@@ -181,6 +191,7 @@ async function comparePrevPrice(url, senderId) {
           err => console.error(err));
       })
     } else {
+      // todo: do this only for /force commands?
       if (typeof senderId !== 'undefined') {
         bot.api.sendMessage(senderId, `${productData.name} hasn't dropped in price.`);
       }
@@ -206,6 +217,19 @@ bot.command('test', async ctx => {
   db.each(`select user_id from wishlist where idSku='i1-s1'`, (err, row) => {
     console.log(row);
   });
+})
+
+bot.command('help', ctx => {
+  ctx.reply(`  
+/start: Start bot. Run this if you've changed your username or name
+{Daraz product URL}: Track this product for you
+/demo: Launch demo page with editable prices, to check bot functionality
+/force: Forcefully run scraper for current user
+/forcedemo: run /force on demo page
+/list: View products being tracked by you
+/remove: Stop tracking specified product
+/help: View help messages
+  `);
 })
 
 bot.start();
