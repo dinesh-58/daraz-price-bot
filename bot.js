@@ -193,6 +193,15 @@ async function comparePrevPrice(url, senderId) {
   });
 }
 
+bot.command('remove', async ctx => {
+  // todo: handle conditions with no. of args > 1 or =0, if idSku not found?  
+  const idSku = ctx.match;
+  console.log(idSku);
+  db.exec(`delete from wishlist where idSku='${idSku}'`, err => {
+    if(err) console.error(err);
+  });
+})
+
 bot.command('test', async ctx => {
   db.each(`select user_id from wishlist where idSku='i1-s1'`, (err, row) => {
     console.log(row);
