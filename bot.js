@@ -13,12 +13,6 @@ app.use(express.static("public"));
 // accept json data sent to server
 app.use(express.json());
 
-bot.command("start", (ctx) =>
-  ctx.reply(
-    "Welcome! Send any daraz product link to track when its price decreases. If the bot is offline, it will respond to your messages when it is back online",
-  ),
-);
-
 bot.command("list", async (ctx) => {
   try {
     const sql = `
@@ -62,19 +56,62 @@ bot.command("list", async (ctx) => {
   }
 });
 
+bot.command("start", async (ctx) => {
+  ctx.reply("Welcome! Send any daraz product link to track when its price decreases. If the bot is offline, it will respond to your messages when it is back online");
+
+  const { id, first_name, username } = ctx.chat;
+  await insertUser(id, first_name, username);
+});
+
+async function insertUser(id, first_name, username) {
+  try {
+    await db.sql(`INSERT INTO users (id, first_name, username) 
+    values('${id}', '${first_name}', '${username}')
+    ON CONFLICT(id) DO UPDATE SET
+      first_name = ${first_name},
+      username = ${username}
+      `);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
 bot.hears(/https:\/\/www\.daraz\.com\.np\/products\/[^\s]+/, async (ctx) => {
   const url = ctx.match[0];
   console.log(`\nReceived: ${url}`);
 
-  const pData = await scrapeDaraz(url);
-  console.log({ pData });
-  // todo: get data from db for current product then compare
-  // if pData.finalPrice < prevPrice, notify user, then store new price
-  // if finalPrice > prevPrice, don't notify but store
-  ctx.reply(
-    `Noted. You will be notified about future price drops for ${pData.name}.`,
-  );
-});
+  const productData = await scrapeDaraz(url);
+  ctx.reply(`Noted. You will be notified about future price drops for ${productData.name}.`);
+  await insertProduct(productData);
+  await insertWishlist(productData.idSku, ctx.chat.id);
+})
+
+async function insertProduct(productData) {
+  const { idSku, name, url, finalPrice } = productData;
+  try {
+    await db.sql(`
+ insert into products(idSku, name, url, prevPrice)
+  values('${idSku}', '${name}', '${url}', ${finalPrice})
+    ON CONFLICT(idSku) DO UPDATE SET
+      scrapePriority = scrapePriority + 1
+ `);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function insertWishlist(idSku, user_id) {
+  try {
+    // todo: handle duplicate entries by same user?
+    // maybe send message saying prod already being tracked
+    await db.sql(`
+      insert into wishlist(idSku, user_id)
+      values('${idSku}', '${user_id}')
+      `);
+  } catch (err) {
+    console.error(err);
+  }
+}
 
 const DEMO_CRON_INTERVAL_MS = 30 * 1000;
 // no. of times to run cron job
@@ -87,70 +124,80 @@ bot.command("demo", async (ctx) => {
     The bot will check ${DEMO_URL} for price drops every ${DEMO_CRON_INTERVAL_MS / 1000} seconds for ${DEMO_CRON_RUN_LIMIT} times.
     `);
   try {
-    // add to demo watchlist
-    await addUserToWishlist(ctx.chat, DEMO_URL, true);
-    // todo: need productData here to specify which product's watchlist to add to
-    scrapeCronJob(DEMO_URL);
+    // set user as current watcher for demo. this is because we don't want to notify many users when demo is running
+    db.get('select pdt_sku, pdt_simplesku from demo_product', (err, row) => {
+      if(err) {
+        return console.error(err);
+      }
+      const demoIdSku = getIdSku(row.pdt_sku, row.pdt_simplesku);
+      const stmt = `update wishlist set user_id='${ctx.chat.id}' where idSku='${demoIdSku}'`;
+      db.exec(stmt);
+      // todo: start cron job for limited runs
+    })
   } catch (err) {
     console.error(err);
   }
 });
 
-async function addUserToWishlist(chatDetails, url, isDemo = false) {
+bot.command("forceDemo", async ctx => {
   try {
-    const { id, fName, username } = chatDetails;
-    // first, add user record if not exists,
-    // else update (because recorded user may have changed name)
-    await db.sql(`INSERT INTO users (id, first_name, username) 
-  values(${id}, ${fName}, ${username})
-   ON CONFLICT(id) DO UPDATE SET
-    first_name = ${fName},
-    username = ${username}`);
-
-    // todo: insert into wishlist table. if demo, concat do update
-    // need idSku for this
-
-    const { idSku } = scrapeDaraz(url);
-    db.get("select pdt_sku, pdt_simplesku", (err, row) => {
-      const demoIdSku = `i${row.pdt_sku}-s${row.pdt_simplesku}`;
-      // for demo, oly current user should be in wishlist
-      stmt = isDemo
-        ? `INSERT INTO wishlist(idSku, user_id) values(${idSku}, ${id})`
-        : `update wishlist set user_id=${id} 
-  where idSku=${demoIdSku}`;
-      db.exec(stmt);
-    });
+    comparePrevPrice(DEMO_URL, ctx.chat.id);
   } catch (err) {
     console.error(err);
   }
+})
+function getIdSku(pdt_sku, pdt_simplesku) {
+  return `i${pdt_sku}-s${pdt_simplesku}`;
 }
 
-// TODO: hmm don't pass url here since its supposed to loop for all products during 1 cron job?
 async function scrapeCronJob(url, cronIntervalMs, cronRunLimit) {
+  // ? hmm don't pass url here since its supposed to loop for all products during 1 cron job? 
   // run every cronIntervalMs uptil cronRunLimit (set limit to -1 for infinite)
-  comparePrevPrice(await scrapeDaraz(url));
+  // setTimeout(scrapeDaraz(), CRON_INTERVAL_MS);
+  comparePrevPrice(url);
 }
 
-function comparePrevPrice(productData) {
-  db.get(
-    `SELECT * FROM products where idSku='${productData.idSku}' LIMIT 1`,
-    (err, row) => {
-      if (err) {
-        res.status(404).json({ error: "No data found" });
-        return console.error(err);
+async function comparePrevPrice(url, senderId) {
+  // NOTE: senderId is used to send message to whover ran /force if price hasn't changed
+  const productData = await scrapeDaraz(url);
+
+  // get previously stored data for this product
+  db.get(`SELECT * FROM products where idSku='${productData.idSku}' LIMIT 1`, (err, row) => {
+    if (err) {
+      return console.error(err);
+    }
+    const final = productData.finalPrice;
+    const prev = row.prevPrice;
+    if (final < prev) {
+      // notify all users watching that product
+      db.each(`select user_id from wishlist where idSku='${productData.idSku}'`, (err, row) => {
+        if (err) {
+          return console.error(err);
+        }
+        bot.api.sendMessage(row.user_id, `Hey! ${productData.name} has dropped in price from ${getStringPrice(prev)} to ${getStringPrice(final)}.\n${productData.url}`)
+        db.exec(`update products set prevPrice=${final},
+           scrapePriority = scrapePriority + 1
+           where idSku='${productData.idSku}'`,
+          err => console.error(err));
+      })
+    } else {
+      if (typeof senderId !== 'undefined') {
+        bot.api.sendMessage(senderId, `${productData.name} hasn't dropped in price.`);
       }
-      const final = getNumericPrice(productData.finalPrice);
-      const prev = getNumericPrice(row.prevPrice);
-      if (final < prev) {
-        // notify users
-        // in db, update prevPrice
-        // & incrementscrapePriority
-      } else if (final > prev) {
-        // only update prevPrice
+      if (final > prev) {
+        db.exec(`update products set prevPrice=${final}
+           where idSku='${productData.idSku}'`,
+          err => console.error(err));
       }
-    },
-  );
+    }
+  });
 }
+
+bot.command('test', async ctx => {
+  db.each(`select user_id from wishlist where idSku='i1-s1'`, (err, row) => {
+    console.log(row);
+  });
+})
 
 bot.start();
 console.log("Bot server is running. \n");
@@ -196,37 +243,21 @@ app.post("/api/postDemoData", async (req, res) => {
   }
 });
 
-function clearObjectValues(obj) {
-  for (const [key, value] of Object.entries(obj)) {
-    if (typeof value === "string") {
-      obj[key] = "";
-    } else if (typeof value === "number") {
-      obj[key] = 0;
-    } else if (typeof value === "boolean") {
-      obj[key] = false;
-    } else if (Array.isArray(value)) {
-      obj[key] = [];
-    } else if (typeof value === "object" && value !== null) {
-      obj[key] = {};
-    } else {
-      obj[key] = null; // Set to null for unhandled types
-    }
-  }
-  return obj;
-}
-
 const CRON_INTERVAL_MS = 4 * 60 * 60 * 1000;
-
-function firstScrape() {}
-function scrapeLoop() {
-  // setTimeout(scrapeDaraz(), CRON_INTERVAL_MS);
-}
 
 export function getNumericPrice(str) {
   // todo: just remove any alphabets and symbols
   return Number(str.replace(/Rs\.?\s?|,|\s/g, ""));
 }
 
+function getStringPrice(num) {
+  return Number(num).toLocaleString("en-IN", {
+    maximumFractionDigits: 0,
+    style: 'currency',
+    currency: 'NPR',
+    currencyDisplay: 'narrowSymbol'
+  })
+}
 async function scrapeDaraz(url) {
   const productData = {
     idSku: "",
@@ -261,7 +292,7 @@ async function scrapeDaraz(url) {
   });
 
   productData.url = url;
-  productData.idSku = `i${loggedData.pdt_sku}-s${loggedData.pdt_simplesku}`;
+  productData.idSku = getIdSku(loggedData.pdt_sku, loggedData.pdt_simplesku);
   productData.name = loggedData.pdt_name;
   productData._undiscountedPrice = getNumericPrice(loggedData.pdt_price);
   productData.finalPrice = getNumericPrice(
@@ -280,7 +311,8 @@ async function scrapeDaraz(url) {
     }
   }
 
-  // don't close if scraping multiple pages? maybe create separate fn to close browser & call when last product reached
+  // ? don't close if scraping multiple pages? maybe create separate fn to close browser & call when last product reached
+  // maybe create a function singleScrape, separate from scrapeCronJob
   await browser.close();
   return productData;
 }
