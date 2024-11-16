@@ -17,19 +17,21 @@ bot.command("start", async (ctx) => {
   ctx.reply("Welcome! Send any daraz product link to track when its price decreases. If the bot is offline, it will respond to your messages when it is back online")
 
   const { id, first_name, username } = ctx.chat;
+  await insertUser(id, first_name, username);
+});
 
+async function insertUser(id, first_name, username) {
   try {
     await db.sql(`INSERT INTO users (id, first_name, username) 
     values('${id}', '${first_name}', '${username}')
     ON CONFLICT(id) DO UPDATE SET
-      first_name = ${fName},
+      first_name = ${first_name},
       username = ${username}
       `);
   } catch (err) {
     console.error(err);
   }
-});
-
+}
 bot.hears(/https:\/\/www\.daraz\.com\.np\/products\/[^\s]+/, async (ctx) => {
   const url = ctx.match[0];
   console.log(`\nReceived: ${url}`);
