@@ -97,7 +97,7 @@ bot.command("demo", async ctx => {
 
 bot.command("forceDemo", async ctx => {
   try {
-    comparePrevPrice(DEMO_URL);
+    comparePrevPrice(DEMO_URL, ctx.chat.id);
   } catch (err) {
     console.error(err);
   }
@@ -113,7 +113,8 @@ async function scrapeCronJob(url, cronIntervalMs, cronRunLimit) {
   comparePrevPrice(url);
 }
 
-async function comparePrevPrice(url) {
+async function comparePrevPrice(url, senderId) {
+  // NOTE: senderId is used to send message to whover ran /force if price hasn't changed
   const productData = await scrapeDaraz(url);
 
   // get previously stored data for this product
@@ -124,22 +125,35 @@ async function comparePrevPrice(url) {
     const final = productData.finalPrice;
     const prev = row.prevPrice;
     if (final < prev) {
-      // notify users
-      db.each(`select user_id from wishlist where idSku='${productData.idSku}'`, (err, users) => {
-        if(err) {
+      // notify all users watching that product
+      db.each(`select user_id from wishlist where idSku='${productData.idSku}'`, (err, row) => {
+        if (err) {
           return console.error(err);
         }
-        console.log({users});
-        
-
+        bot.api.sendMessage(row.user_id, `Hey! ${productData.name} has dropped in price from ${getStringPrice(prev)} to ${getStringPrice(final)}.\n${productData.url}`)
+        db.exec(`update products set prevPrice=${final},
+           scrapePriority = scrapePriority + 1
+           where idSku='${productData.idSku}'`,
+          err => console.error(err));
       })
-      // in db, update prevPrice 
-      // & incrementscrapePriority
-    } else if (final > prev) {
-      // only update prevPrice
+    } else {
+      if (typeof senderId !== 'undefined') {
+        bot.api.sendMessage(senderId, `${productData.name} hasn't dropped in price.`);
+      }
+      if (final > prev) {
+        db.exec(`update products set prevPrice=${final}
+           where idSku='${productData.idSku}'`,
+          err => console.error(err));
+      }
     }
   });
 }
+
+bot.command('test', async ctx => {
+  db.each(`select user_id from wishlist where idSku='i1-s1'`, (err, row) => {
+    console.log(row);
+  });
+})
 
 bot.start();
 console.log("Bot server is running. \n");
@@ -193,6 +207,14 @@ export function getNumericPrice(str) {
   return Number(str.replace(/Rs\.?\s?|,|\s/g, ""));
 }
 
+function getStringPrice(num) {
+  return Number(num).toLocaleString("en-IN", {
+    maximumFractionDigits: 0,
+    style: 'currency',
+    currency: 'NPR',
+    currencyDisplay: 'narrowSymbol'
+  })
+}
 async function scrapeDaraz(url) {
   const productData = {
     idSku: '',
@@ -237,7 +259,7 @@ async function scrapeDaraz(url) {
       el => el.textContent
     ).catch(() => null);
     if (discountText !== null) {
-      productData.discountPercent = Number(discountText.replace(/-|%/g, ''));
+      productData._discountPercent = Number(discountText.replace(/-|%/g, ''));
     } else {
       productData._discountPercent = null;
     }
