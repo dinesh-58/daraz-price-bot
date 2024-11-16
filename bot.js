@@ -35,16 +35,11 @@ async function insertUser(id, first_name, username) {
 bot.hears(/https:\/\/www\.daraz\.com\.np\/products\/[^\s]+/, async (ctx) => {
   const url = ctx.match[0];
   console.log(`\nReceived: ${url}`);
-  
+
   const productData = await scrapeDaraz(url);
   ctx.reply(`Noted. You will be notified about future price drops for ${productData.name}.`);
   await insertProduct(productData);
   await insertWishlist(productData.idSku, ctx.chat.id);
-
-  // todo: move this logic belowto some other function. not needed here
-  //  get data from db for current product then compare
-  // if pData.finalPrice < prevPrice, notify user, then store new price
-  // if finalPrice > prevPrice, don't notify but store
 })
 
 async function insertProduct(productData) {
@@ -64,6 +59,7 @@ async function insertProduct(productData) {
 async function insertWishlist(idSku, user_id) {
   try {
     // todo: handle duplicate entries by same user?
+    // maybe send message saying prod already being tracked
     await db.sql(`
       insert into wishlist(idSku, user_id)
       values('${idSku}', '${user_id}')
@@ -84,45 +80,34 @@ bot.command("demo", async ctx => {
     The bot will check ${DEMO_URL} for price drops every ${DEMO_CRON_INTERVAL_MS / 1000} seconds for ${DEMO_CRON_RUN_LIMIT} times.
     `);
   try {
-    // add to demo watchlist
-    await addUserToWishlist(ctx.chat, DEMO_URL, true);
-    // todo: need productData here to specify which product's watchlist to add to
-    scrapeCronJob(DEMO_URL);
+    // set user as current watcher for demo. this is because we don't want to notify many users when demo is running
+    db.get('select pdt_sku, pdt_simplesku from demo_product', (err, row) => {
+      if(err) {
+        return console.error(err);
+      }
+      const demoIdSku = getIdSku(row.pdt_sku, row.pdt_simplesku);
+      const stmt = `update wishlist set user_id='${ctx.chat.id}' where idSku='${demoIdSku}'`;
+      db.exec(stmt);
+      // todo: start cron job for limited runs
+    })
   } catch (err) {
     console.error(err);
   }
 })
 
-async function addUserToWishlist(chatDetails, url, isDemo = false) {
-  try {
-
-    const { id, first_name, username } = chatDetails;
-
-    // todo: insert into wishlist table. if demo, concat do update
-    // need idSku for this
-
-    const { idSku } = scrapeDaraz(url);
-    db.get('select pdt_sku, pdt_simplesku', (err, row) => {
-      const demoIdSku = `i${row.pdt_sku}-s${row.pdt_simplesku}`;
-      // for demo, oly current user should be in wishlist
-      stmt = isDemo ? `INSERT INTO wishlist(idSku, user_id) values(${idSku}, ${id})`
-        : `update wishlist set user_id=${id} 
-  where idSku=${demoIdSku}`;
-      db.exec(stmt);
-    })
-  } catch (err) {
-    console.error(err);
-  }
+function getIdSku(pdt_sku, pdt_simplesku) {
+  return `i${pdt_sku}-s${pdt_simplesku}`;
 }
 
-// TODO: hmm don't pass url here since its supposed to loop for all products during 1 cron job? 
 async function scrapeCronJob(url, cronIntervalMs, cronRunLimit) {
+  // ? hmm don't pass url here since its supposed to loop for all products during 1 cron job? 
   // run every cronIntervalMs uptil cronRunLimit (set limit to -1 for infinite)
   // setTimeout(scrapeDaraz(), CRON_INTERVAL_MS);
   comparePrevPrice(await scrapeDaraz(url));
 }
 
 function comparePrevPrice(productData) {
+  // ? make this fn take url & call scrapeDaraz?
   db.get(`SELECT * FROM products where idSku='${productData.idSku}' LIMIT 1`, (err, row) => {
     if (err) {
       res.status(404).json({ error: 'No data found' });
@@ -225,7 +210,7 @@ async function scrapeDaraz(url) {
 
 
   productData.url = url;
-  productData.idSku = `i${loggedData.pdt_sku}-s${loggedData.pdt_simplesku}`;
+  productData.idSku = getIdSku(loggedData.pdt_sku, loggedData.pdt_simplesku);
   productData.name = loggedData.pdt_name;
   productData._undiscountedPrice = getNumericPrice(loggedData.pdt_price);
   productData.finalPrice = getNumericPrice(await page.$eval('.pdp-price_type_normal', el => el.textContent));
