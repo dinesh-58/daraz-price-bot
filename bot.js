@@ -95,6 +95,13 @@ bot.command("demo", async ctx => {
   }
 })
 
+bot.command("forceDemo", async ctx => {
+  try {
+    comparePrevPrice(DEMO_URL);
+  } catch (err) {
+    console.error(err);
+  }
+})
 function getIdSku(pdt_sku, pdt_simplesku) {
   return `i${pdt_sku}-s${pdt_simplesku}`;
 }
@@ -103,20 +110,29 @@ async function scrapeCronJob(url, cronIntervalMs, cronRunLimit) {
   // ? hmm don't pass url here since its supposed to loop for all products during 1 cron job? 
   // run every cronIntervalMs uptil cronRunLimit (set limit to -1 for infinite)
   // setTimeout(scrapeDaraz(), CRON_INTERVAL_MS);
-  comparePrevPrice(await scrapeDaraz(url));
+  comparePrevPrice(url);
 }
 
-function comparePrevPrice(productData) {
-  // ? make this fn take url & call scrapeDaraz?
+async function comparePrevPrice(url) {
+  const productData = await scrapeDaraz(url);
+
+  // get previously stored data for this product
   db.get(`SELECT * FROM products where idSku='${productData.idSku}' LIMIT 1`, (err, row) => {
     if (err) {
-      res.status(404).json({ error: 'No data found' });
       return console.error(err);
     }
-    const final = getNumericPrice(productData.finalPrice);
-    const prev = getNumericPrice(row.prevPrice);
+    const final = productData.finalPrice;
+    const prev = row.prevPrice;
     if (final < prev) {
       // notify users
+      db.each(`select user_id from wishlist where idSku='${productData.idSku}'`, (err, users) => {
+        if(err) {
+          return console.error(err);
+        }
+        console.log({users});
+        
+
+      })
       // in db, update prevPrice 
       // & incrementscrapePriority
     } else if (final > prev) {
@@ -228,7 +244,8 @@ async function scrapeDaraz(url) {
   }
 
 
-  // don't close if scraping multiple pages? maybe create separate fn to close browser & call when last product reached
+  // ? don't close if scraping multiple pages? maybe create separate fn to close browser & call when last product reached
+  // maybe create a function singleScrape, separate from scrapeCronJob
   await browser.close();
   return productData;
 }
