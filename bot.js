@@ -1,7 +1,7 @@
 import { Bot } from "grammy";
-import { Database } from '@sqlitecloud/drivers';
-import puppeteer from 'puppeteer-core';
-import express from 'express';
+import { Database } from "@sqlitecloud/drivers";
+import puppeteer from "puppeteer-core";
+import express from "express";
 
 const app = express();
 const bot = new Bot(process.env.BOT_API_TOKEN);
@@ -9,12 +9,55 @@ const db = new Database(process.env.SQLITE_CLOUD_URL);
 
 const PORT = process.env.PORT || 3000;
 // Serve static files from the "public" directory
-app.use(express.static('public'));
+app.use(express.static("public"));
 // accept json data sent to server
 app.use(express.json());
 
+bot.command("list", async (ctx) => {
+  try {
+    const sql = `
+      SELECT w.idSku, p.name 
+      FROM wishlist w
+      JOIN products p ON w.idSku = p.idSku
+      WHERE w.user_id = 1792870236`;
+    db.all(sql, (err, rows) => {
+      if (err) {
+        console.error(err);
+        ctx.reply("An error occurred while fetching your list.");
+        return;
+      }
+      if (rows.length === 0) {
+        ctx.reply("Your list is empty.");
+        return;
+      }
+      let message = "<b>Your List</b>\n";
+      message += "<pre>";
+      message += "| idSku             | Product Name                             |\n";
+      message += "|-------------------|------------------------------------------|\n";
+
+      rows.forEach((row) => {
+        const idSku = row.idSku.toString();
+        let productName = row.name;
+
+        const words = productName.split(" ");
+        const first4Words = words.slice(0, 4).join(" ");
+
+        message += `| ${idSku.padEnd(18)} | ${first4Words.padEnd(40)} |\n`;
+      });
+
+      message += "</pre>";
+
+      // Send the HTML-formatted message
+      ctx.reply(message, { parse_mode: "HTML" });
+    });
+  } catch (error) {
+    console.error(error);
+    ctx.reply("An error occurred while processing your request.");
+  }
+});
+
 bot.command("start", async (ctx) => {
-  ctx.reply("Welcome! Send any daraz product link to track when its price decreases. If the bot is offline, it will respond to your messages when it is back online")
+  ctx.reply("Welcome! Send any daraz product link to track when its price decreases. If the bot is offline, it will respond to your messages when it is back online");
 
   const { id, first_name, username } = ctx.chat;
   await insertUser(id, first_name, username);
@@ -32,6 +75,7 @@ async function insertUser(id, first_name, username) {
     console.error(err);
   }
 }
+
 bot.hears(/https:\/\/www\.daraz\.com\.np\/products\/[^\s]+/, async (ctx) => {
   const url = ctx.match[0];
   console.log(`\nReceived: ${url}`);
@@ -72,9 +116,9 @@ async function insertWishlist(idSku, user_id) {
 const DEMO_CRON_INTERVAL_MS = 30 * 1000;
 // no. of times to run cron job
 const DEMO_CRON_RUN_LIMIT = 5;
-const DEMO_URL = `http://localhost:${PORT}/demo.html`
+const DEMO_URL = `http://localhost:${PORT}/demo.html`;
 
-bot.command("demo", async ctx => {
+bot.command("demo", async (ctx) => {
   // todo: call scraper loop with this user's id
   ctx.reply(`Started demo.
     The bot will check ${DEMO_URL} for price drops every ${DEMO_CRON_INTERVAL_MS / 1000} seconds for ${DEMO_CRON_RUN_LIMIT} times.
@@ -93,7 +137,7 @@ bot.command("demo", async ctx => {
   } catch (err) {
     console.error(err);
   }
-})
+});
 
 bot.command("forceDemo", async ctx => {
   try {
@@ -162,23 +206,22 @@ app.listen(PORT, () => {
   console.log(`Express web server is running on http://localhost:${PORT}`);
 });
 
-app.get('/api/getDemoData', async (req, res) => {
+app.get("/api/getDemoData", async (req, res) => {
   try {
-    db.get('SELECT * FROM demo_product LIMIT 1', (err, row) => {
+    db.get("SELECT * FROM demo_product LIMIT 1", (err, row) => {
       if (err) {
-        res.status(404).json({ error: 'No data found' });
+        res.status(404).json({ error: "No data found" });
         return console.error(err);
       }
       res.json(row);
     });
-
   } catch (error) {
-    res.status(500).json({ error: 'Failed to retrieve data' });
+    res.status(500).json({ error: "Failed to retrieve data" });
     console.error(error);
   }
 });
 
-app.post('/api/postDemoData', async (req, res) => {
+app.post("/api/postDemoData", async (req, res) => {
   try {
     const { pdpTrackingData } = req.body;
 
@@ -192,10 +235,10 @@ app.post('/api/postDemoData', async (req, res) => {
 
         where pdt_sku = ${pdpTrackingData.pdt_sku}
         and pdt_simplesku = ${pdpTrackingData.pdt_simplesku}
-      `)
-    res.status(200).send('Demo data updated');
+      `);
+    res.status(200).send("Demo data updated");
   } catch (error) {
-    res.status(500).json({ error: 'Failed to add data' });
+    res.status(500).json({ error: "Failed to add data" });
     console.error(error);
   }
 });
@@ -217,54 +260,56 @@ function getStringPrice(num) {
 }
 async function scrapeDaraz(url) {
   const productData = {
-    idSku: '',
-    name: '',
-    url: '',
+    idSku: "",
+    name: "",
+    url: "",
     finalPrice: 0,
     // properties starting with _ shouldn't be stored in db
     _undiscountedPrice: 0,
-    _discountPercent: 0
+    _discountPercent: 0,
   };
 
   const browser = await puppeteer.launch({
     browser: process.env.PUPPETEER_BROWSER,
-    ...(process.env.PUPPETEER_BROWSER_PATH && { executablePath: process.env.PUPPETEER_BROWSER_PATH }),
+    ...(process.env.PUPPETEER_BROWSER_PATH && {
+      executablePath: process.env.PUPPETEER_BROWSER_PATH,
+    }),
     headless: true,
   });
   const page = await browser.newPage();
 
   await page.goto(url, {
     timeout: 2 * 60 * 1000,
-    waitUntil: "networkidle0"
+    waitUntil: "networkidle0",
   });
 
   await page.setViewport({ width: 1080, height: 1024 });
 
-  // INFO: each product page in daraz has a globally-scoped obj pdpTrackingData 
+  // INFO: each product page in daraz has a globally-scoped obj pdpTrackingData
   // that has data about the product
   const loggedData = await page.evaluate(() => {
-    return typeof pdpTrackingData !== 'undefined' ? pdpTrackingData : null;
+    return typeof pdpTrackingData !== "undefined" ? pdpTrackingData : null;
   });
-
 
   productData.url = url;
   productData.idSku = getIdSku(loggedData.pdt_sku, loggedData.pdt_simplesku);
   productData.name = loggedData.pdt_name;
   productData._undiscountedPrice = getNumericPrice(loggedData.pdt_price);
-  productData.finalPrice = getNumericPrice(await page.$eval('.pdp-price_type_normal', el => el.textContent));
+  productData.finalPrice = getNumericPrice(
+    await page.$eval(".pdp-price_type_normal", (el) => el.textContent),
+  );
 
   // maybe notify user about discount %
   if (productData.finalPrice < productData._undiscountedPrice) {
-    const discountText = await page.$eval('.pdp-product-price__discount',
-      el => el.textContent
-    ).catch(() => null);
+    const discountText = await page
+      .$eval(".pdp-product-price__discount", (el) => el.textContent)
+      .catch(() => null);
     if (discountText !== null) {
-      productData._discountPercent = Number(discountText.replace(/-|%/g, ''));
+      productData.discountPercent = Number(discountText.replace(/-|%/g, ""));
     } else {
       productData._discountPercent = null;
     }
   }
-
 
   // ? don't close if scraping multiple pages? maybe create separate fn to close browser & call when last product reached
   // maybe create a function singleScrape, separate from scrapeCronJob
