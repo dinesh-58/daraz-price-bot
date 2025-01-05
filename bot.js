@@ -57,7 +57,6 @@ bot.command("list", async (ctx) => {
 
       message += "</pre>";
 
-      // Send the HTML-formatted message
       ctx.reply(message, { parse_mode: "HTML" });
     });
   } catch (error) {
@@ -149,7 +148,7 @@ bot.command("demo", async (ctx) => {
   }
 });
 
-bot.command("forceDemo", async ctx => {
+bot.command("forcedemo", async ctx => {
   try {
     comparePrevPrice(DEMO_URL, ctx.chat.id);
   } catch (err) {
@@ -162,9 +161,12 @@ function getIdSku(pdt_sku, pdt_simplesku) {
 
 async function scrapeCronJob(url, cronIntervalMs, cronRunLimit) {
   // ? hmm don't pass url here since its supposed to loop for all products during 1 cron job? 
-  // run every cronIntervalMs uptil cronRunLimit (set limit to -1 for infinite)
-  // setTimeout(scrapeDaraz(), CRON_INTERVAL_MS);
-  comparePrevPrice(url);
+  db.each('select * from products sort by scrapePriority desc', (err, row => {
+    const url = row.url;
+    // run every cronIntervalMs uptil cronRunLimit (set limit to -1 for infinite)
+    // setTimeout(scrapeDaraz(), CRON_INTERVAL_MS);
+    comparePrevPrice(url);
+  }))
 }
 
 async function comparePrevPrice(url, senderId) {
@@ -184,6 +186,7 @@ async function comparePrevPrice(url, senderId) {
         if (err) {
           return console.error(err);
         }
+    console.log(row);
         bot.api.sendMessage(row.user_id, `Hey! ${productData.name} has dropped in price from ${getStringPrice(prev)} to ${getStringPrice(final)}.\n${productData.url}`)
         db.exec(`update products set prevPrice=${final},
            scrapePriority = scrapePriority + 1
